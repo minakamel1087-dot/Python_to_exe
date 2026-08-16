@@ -1,109 +1,111 @@
-# py-to-exe
+# WIR Tools
 
-Give it a Python script, get back a Windows `.exe`. No Python, no PyInstaller,
-nothing to install — GitHub's Windows runners do the work.
+A desktop app that works on the **open** workbook. It attaches to the Excel
+you already have running and edits the sheet live.
 
-## Use it
+There is no VBA left. The workbook becomes a workbook — data, forms and
+reference tables — and this program is the tool.
 
-Drop a `.py` into `scripts/`, commit, push:
+## Running it
 
-```bash
-git add scripts/my_tool.py
-git commit -m "Add my_tool"
-git push
+```bat
+pip install -r requirements.txt
+python main.py
 ```
 
-The **Build scripts** workflow runs, and the `.exe` is waiting under
-**Actions → that run → Artifacts**. Every script in `scripts/` builds
-independently, so a broken one doesn't hold up the rest.
+`python main.py --check` runs Fix Links → Check Areas → Pre-flight once and
+prints the result, with no window. Start there when something misbehaves:
+errors print instead of disappearing into a worker thread.
 
-Need options — an icon, no console window, extra PyInstaller flags? Use
-**Actions → Build exe (manual) → Run workflow** and point it at any path in the
-repo (`.spec` files accepted too).
+Build the exe with `build.bat` (PyInstaller, one file, no console).
 
-## What goes in scripts/
+## Why COM and not openpyxl
 
-```
-scripts/
-  my_tool.py            -> my_tool.exe
-  bigger_tool/
-    main.py             -> bigger_tool.exe   (entry point must be main.py)
-    helpers.py
-    requirements.txt    (optional, see below)
-    build.args          (optional, extra PyInstaller flags)
-```
+`openpyxl` and `pandas` read and write the file **on disk**. Against a
+workbook that is open, that either fails outright or loses whatever the
+user saves next. This uses `pywin32` against the running Excel, so edits
+appear in their window immediately.
 
-A single file, or a folder with `main.py` as its entry point when the tool has
-helper modules beside it.
+`GetActiveObject` is used rather than `Dispatch` on purpose — `Dispatch`
+would happily start a second, empty Excel and then report that the
+workbook is not open.
 
-`build.args` is how a script in the drop folder gets non-default flags without
-going through the manual workflow — one flag per line, `#` starts a comment:
-
-```
---windowed
---hidden-import win32timezone
---add-data "template.xlsx;."
-```
-
-## How dependencies are handled
-
-You don't have to do anything, but here's the order so nothing is a surprise:
-
-1. **A `requirements.txt` next to your script** — used as-is. This is the
-   reliable option; reach for it whenever the build gets it wrong.
-2. **Otherwise, the nearest one above it** — walking up to the repo root. So
-   `scripts/bigger_tool/main.py` picks up `scripts/bigger_tool/requirements.txt`,
-   never a neighbouring tool's.
-3. **Nothing found** — `pipreqs` reads your imports and generates one. It's
-   printed in the build log. Packages install one at a time, so a line pipreqs
-   guessed wrong (`import cv2` really means `opencv-python`, a local module
-   mistaken for a package) doesn't stop the others — the log names what it
-   skipped.
-4. **`requirements: none`** in the manual workflow — install nothing, for a
-   stdlib-only script.
-
-PyInstaller itself is always installed, pinned, whichever branch runs.
-
-## Building on your own machine
-
-Same script the workflows call, so the result matches:
-
-```bash
-powershell -ExecutionPolicy Bypass -File build-exe.ps1 -Script scripts\hello.py
-```
-
-Dependencies go into a throwaway `.venv-build\`, not your normal Python. Needs
-Python installed locally; the workflows don't.
-
-Useful parameters — `-Name`, `-Mode onedir`, `-Console windowed`, `-Icon app.ico`,
-`-Requirements <path|none>`, `-ExtraArgs`, `-SmokeArgs`.
-
-## Three things that bite with PyInstaller
-
-Worth reading before your first real build — these cause almost every "it built
-but won't run".
-
-- **Data files aren't detected.** Images, templates, `.json` config next to your
-  script: add `--add-data "assets;assets"` (on Windows the separator between
-  source and destination is `;`, not `:`).
-- **Dynamic imports are invisible.** Anything imported by name at runtime —
-  plugin loaders, `importlib`, some database drivers — is left out, so the exe
-  builds cleanly and dies on startup. Fix with `--hidden-import package.module`,
-  and pass `-SmokeArgs "--version"` so the build catches it instead of you.
-- **Paths change when frozen.** `__file__` points inside a temp extraction
-  folder at runtime, so writing next to it silently loses data. Use
-  `sys.executable`'s folder for files the user should keep, and check
-  `getattr(sys, "frozen", False)` when the two paths need to differ.
-
-Also expect a SmartScreen warning on any unsigned exe, and 30-60 MB for anything
-that imports pandas or similar. `-Mode onedir` starts faster than `onefile` and
-trips antivirus less often, at the cost of shipping a folder instead of one file.
+Excel still renders the PDFs, because `ExportAsFixedFormat` is how an
+Excel sheet becomes a PDF and nothing else reproduces the form layout.
+That is automation from outside, not code living in the file.
 
 ## Layout
 
-| Path | What it is |
-| --- | --- |
-| `scripts/` | Your scripts. The drop folder. |
-| `build-exe.ps1` | All the build logic. Both workflows call this, so CI and local builds can't drift apart. |
-| `.github/workflows/build-scripts.yml` | Auto-builds everything in `scripts/` on push. |
-| `.github/workflows/build-exe.yml` | Manual build of any path, with the full option set. |
+```
+main.py              window, or --check for the headless run
+core/                the logic. Imports nothing from ui.
+  config.py          every column, sheet and table name in the workbook
+  workbook.py        the live Excel connection, range read/write
+  reference.py       the five reference tables, all found by name
+  text.py            tokenising and normalising the Area column
+  paths.py           attachment link repair
+  pdf.py             merging each WIR's documents into one file
+  findings.py        Finding, Severity, RunResult
+  report.py          the PreFlight sheet
+  tasks/
+    generate.py        cover + checklist + attachments + merge
+    fix_links.py       attachment paths and the register prefix, merged
+    check_areas.py     suggestions into column K
+    preflight.py       every check, before anything is generated
+    import_register.py reload the WIRs sheet from the master register
+    import_previous.py approved previous-activity paths into column AA
+    history.py         Copy To History, and the Outlook draft
+    extract_pdfs.py    copy the visible rows' files into one folder
+    clear_sheets.py    wipe a sheet; wipe the log and restore its template
+ui/
+  theme.py           colours and the stylesheet
+  window.py          the window, the worker thread, the buttons
+```
+
+`core` never imports from `ui`. That is what lets `--check` exist, and what
+would let this run from a scheduled task later.
+
+## One PDF per WIR
+
+Generate renders the cover and the checklist, copies in the attachments,
+then merges everything in that WIR's folder into a single
+`<WIR No>-R<rev>.pdf` in the output root — carried over from the previous
+`wir_generate.py`.
+
+With one deliberate change: the folder is deleted **only when everything
+in it was a PDF** and therefore made it into the merge. The original
+deleted it unconditionally, which silently threw away photos and any other
+non-PDF attachment. Now those keep their folder and the run reports it.
+
+## Reference data stays in the workbook
+
+`Area_Names`, `Activity_Splits`, `WIR_Status_Codes`, `Floor_Apartments`
+and `Prev_Activities` are still Excel tables, edited in Excel. They are
+looked up **by name**, never by sheet and column — the project data has
+already moved sheets twice, and every hardcoded column reference broke
+silently when it did.
+
+## What removing the VBA changed
+
+Columns V, X, Z and AB held `=PathExists(...)`, a function that lived in
+the workbook's `Functions` module. With no macros those show `#NAME?`, so
+Clear WIR Sheet now leaves them empty. Fix Links and Check WIRs both
+report which paths resolve, which is what those columns were for.
+
+`Extract PDFs` used to ask you to select a range by hand. It now uses the
+Link column for the rows you can see — the same filtered set Copy To
+History works on.
+
+## Notes for whoever changes this next
+
+- Read a whole range in one call and write it back in one call. COM
+  crosses a process boundary; cell-by-cell loops from Python are slow in a
+  way they never were in VBA.
+- `text_of()` exists because Excel hands back floats. `101102103.0` must
+  not become the string `"101102103.0"`.
+- The odd-looking rules in `text.py` are all load-bearing. Each one is
+  there because real data broke the previous version — non-breaking
+  spaces, unit numbers glued to their prefix, and Excel silently turning
+  `101,102,103` into the number `101102103`.
+- Dialogs are opened on the GUI thread and the result handed to the
+  worker. A file dialog from a worker thread is a crash waiting to happen.

@@ -1,4 +1,0 @@
-# Spelled out rather than left to pipreqs: the module is imported as
-# win32com.client but the package is called pywin32, which pipreqs gets wrong.
-pywin32
-pypdf

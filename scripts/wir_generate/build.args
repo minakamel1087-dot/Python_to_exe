@@ -1,9 +1,0 @@
-# Extra PyInstaller flags for this script. One per line, # starts a comment.
-
-# It's a tkinter app — without this a console window sits behind the dialogs.
---windowed
-
-# pywin32 loads these by name at runtime, so PyInstaller can't see them and
-# the exe would build clean then fail the moment it talks to Excel.
---hidden-import win32timezone
---hidden-import win32com.client

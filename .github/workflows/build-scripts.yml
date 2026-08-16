@@ -1,0 +1,85 @@
+name: Build scripts
+
+# The drop-folder path: commit a .py into scripts/, push, and download the .exe
+# from this run's artifacts. Every script builds independently, so one broken
+# script doesn't stop the others (fail-fast: false).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/build-scripts.yml"
+      - "build-exe.ps1"
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      scripts: ${{ steps.list.outputs.scripts }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find scripts to build
+        id: list
+        shell: pwsh
+        run: |
+          # Two shapes are built:
+          #   scripts\tool.py          - a single-file script
+          #   scripts\tool\main.py     - a tool with helper modules beside it
+          $found = @()
+          if (Test-Path scripts) {
+            $found += Get-ChildItem scripts -File -Filter *.py |
+                      Where-Object { $_.Name -ne "__init__.py" } |
+                      ForEach-Object { "scripts/$($_.Name)" }
+            $found += Get-ChildItem scripts -Directory |
+                      Where-Object { Test-Path (Join-Path $_.FullName "main.py") } |
+                      ForEach-Object { "scripts/$($_.Name)/main.py" }
+          }
+
+          if (-not $found) {
+            Write-Host "No scripts found under scripts/ — nothing to build."
+          } else {
+            $found | ForEach-Object { Write-Host "  $_" }
+          }
+
+          $json = ConvertTo-Json -InputObject @($found) -Compress -AsArray
+          "scripts=$json" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+  build:
+    needs: discover
+    if: needs.discover.outputs.scripts != '[]'
+    runs-on: windows-latest # a Windows .exe can only be built on Windows
+    strategy:
+      fail-fast: false
+      matrix:
+        script: ${{ fromJson(needs.discover.outputs.scripts) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Name this build
+        id: meta
+        shell: pwsh
+        env:
+          SCRIPT: ${{ matrix.script }}
+        run: |
+          $stem = [IO.Path]::GetFileNameWithoutExtension($env:SCRIPT)
+          $name = if ($stem -eq "main") { Split-Path -Leaf (Split-Path -Parent $env:SCRIPT) } else { $stem }
+          "name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build
+        shell: pwsh
+        run: ./build-exe.ps1 -Script "${{ matrix.script }}" -NoVenv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: dist/**
+          if-no-files-found: error
+          retention-days: 90

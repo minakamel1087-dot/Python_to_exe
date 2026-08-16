@@ -156,6 +156,21 @@ else {
         $cmd += " --icon `"$((Resolve-Path -LiteralPath $Icon).Path)`""
     }
 }
+# A build.args file beside the script carries per-script flags (--windowed,
+# --hidden-import, --add-data). Without it the drop folder could only ever
+# produce default console builds, and anything with a GUI or a runtime import
+# would need the manual workflow every time.
+$argsFile = Join-Path $scriptDir "build.args"
+if (Test-Path -LiteralPath $argsFile) {
+    $fileArgs = (Get-Content $argsFile |
+                 ForEach-Object { $_.Trim() } |
+                 Where-Object { $_ -and -not $_.StartsWith("#") }) -join " "
+    if ($fileArgs) {
+        Write-Host "build.args: $fileArgs"
+        $cmd += " $fileArgs"
+    }
+}
+
 # Invoke-Expression rather than an argument array, so quoted extras like
 # --add-data "assets;assets" stay a single argument.
 if ($ExtraArgs) { $cmd += " $ExtraArgs" }

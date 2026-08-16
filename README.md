@@ -30,10 +30,20 @@ scripts/
     main.py             -> bigger_tool.exe   (entry point must be main.py)
     helpers.py
     requirements.txt    (optional, see below)
+    build.args          (optional, extra PyInstaller flags)
 ```
 
 A single file, or a folder with `main.py` as its entry point when the tool has
 helper modules beside it.
+
+`build.args` is how a script in the drop folder gets non-default flags without
+going through the manual workflow — one flag per line, `#` starts a comment:
+
+```
+--windowed
+--hidden-import win32timezone
+--add-data "template.xlsx;."
+```
 
 ## How dependencies are handled
 

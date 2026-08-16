@@ -44,7 +44,12 @@ jobs:
             $found | ForEach-Object { Write-Host "  $_" }
           }
 
-          $json = ConvertTo-Json -InputObject @($found) -Compress -AsArray
+          # Built by hand rather than with ConvertTo-Json: -AsArray wraps
+          # whatever it is given, so an array came back as [["a","b"]] — one
+          # matrix job holding every script instead of one job each. Script
+          # paths contain nothing that needs JSON escaping.
+          $json = "[" + (($found | ForEach-Object { '"' + $_ + '"' }) -join ",") + "]"
+          Write-Host "matrix: $json"
           "scripts=$json" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
   build:

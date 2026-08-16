@@ -39,6 +39,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# PowerShell 7.4+ (what the GitHub runners use) turns any non-zero exit from a
+# native command into a terminating error while ErrorActionPreference is Stop.
+# That would kill the build on the first pip install this script deliberately
+# tolerates — the per-package pipreqs retry below. Exit codes are checked
+# explicitly everywhere it matters instead.
+if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
 $repo = $PSScriptRoot
 if (-not $OutDir) { $OutDir = Join-Path $repo "dist" }
 $workDir = Join-Path $repo "build"

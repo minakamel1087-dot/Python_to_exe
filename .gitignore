@@ -1,9 +1,0 @@
-__pycache__/
-*.pyc
-.venv/
-venv/
-.venv-build/
-build/
-dist/
-generated-requirements.txt
-.DS_Store

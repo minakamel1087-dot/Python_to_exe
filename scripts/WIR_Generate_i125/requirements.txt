@@ -1,0 +1,13 @@
+# Minimums, not pins: 3.13 needs newer wheels than the first draft asked
+# for, and the build machine may be on a different version again.
+PySide6>=6.8
+pywin32>=308
+pypdf>=4.3
+
+# Only reached when a PDF attachment is protected, which consultants' PDFs
+# often are. Without it those files cannot be merged and the WIR folder is
+# kept for merging by hand.
+cryptography>=42.0
+
+# Build only - not imported by the program.
+pyinstaller>=6.10

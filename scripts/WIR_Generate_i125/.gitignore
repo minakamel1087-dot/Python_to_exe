@@ -1,5 +1,0 @@
-build/
-dist/
-selftest.log
-__pycache__/
-*.pyc

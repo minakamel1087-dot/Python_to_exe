@@ -1,131 +1,132 @@
 # py-to-exe
 
-Give it a Python script, get back a Windows `.exe`. No Python, no PyInstaller,
-nothing to install — GitHub's Windows runners do the work.
+Turn any Python project into a standalone Windows `.exe`. Two ways in, same
+rules, same result:
 
-## Use it
+| | Needs | Good for |
+| --- | --- | --- |
+| **PyToExe Builder** (a local app) | Python on the machine | offline work, private code, fast iteration |
+| **GitHub Actions** (push and download) | nothing installed | a clean machine, or handing builds to someone else |
 
-Drop a `.py` into `scripts/`, commit, push:
+## PyToExe Builder — compile any repo, locally
+
+Build it once (see below), then run `PyToExe_Builder.exe`:
+
+1. **Browse...** to any repo or project folder.
+2. It lists what it could build; the best guess is already selected. Override
+   it from the dropdown, or **Pick file...** for a layout it didn't anticipate.
+3. Choose one-file or folder, console or windowed, an icon if you want one.
+4. **Build .exe**, and watch the log. The result lands in that project's `dist\`.
+
+**It needs Python installed on that machine.** PyInstaller compiles a program by
+importing it and tracing what it pulls in, which takes a real interpreter with a
+complete standard library — a frozen exe's own runtime is stripped and cannot do
+it. Embedding a Python distribution to dodge that would be large and fragile. So
+the app finds Python, keeps its own virtualenv in `%LOCALAPPDATA%\PyToExe`, and
+runs PyInstaller as a subprocess. No Python found, and it says so plainly instead
+of failing halfway through.
+
+It touches nothing else: no registry, no admin, no services, no shell scripts.
+Uninstalling is deleting `%LOCALAPPDATA%\PyToExe` and the exe.
+
+## GitHub Actions — compile without installing anything
+
+Drop a `.py` (or a whole project folder) into `scripts/`, commit, push:
 
 ```bash
-git add scripts/my_tool.py
+git add scripts/my_tool
 git commit -m "Add my_tool"
 git push
 ```
 
-The **Build scripts** workflow runs, and the `.exe` is waiting under
-**Actions → that run → Artifacts**. Every script in `scripts/` builds
-independently, so a broken one doesn't hold up the rest.
+The **Build scripts** workflow runs and the `.exe` waits under **Actions → that
+run → Artifacts**. Every project in `scripts/` builds independently, so a broken
+one doesn't hold up the rest.
 
-Need options — an icon, no console window, extra PyInstaller flags? Use
-**Actions → Build exe (manual) → Run workflow** and point it at any path in the
-repo (`.spec` files accepted too).
+For one-off options — an icon, windowed mode, extra PyInstaller flags — use
+**Actions → Build exe (manual) → Run workflow** against any path in the repo.
 
-## What goes in scripts/
+## What gets built
 
-```
-scripts/
-  my_tool.py            -> my_tool.exe
-  bigger_tool/
-    main.py             -> bigger_tool.exe   (entry point must be main.py)
-    helpers.py
-    requirements.txt    (optional, see below)
-    build.args          (optional, extra PyInstaller flags)
-```
+Both routes pick the entry point the same way, best first:
 
-A single file, or a folder with `main.py` as its entry point when the tool has
-helper modules beside it.
+1. **A `.spec` file** in the project folder. A project that ships one has already
+   declared its hidden imports, data files and windowed mode; no flags here could
+   second-guess it. It runs from its own folder, so the relative paths inside it
+   (`Analysis(["main.py"])`, `pathex=["."]`) behave as they do by hand.
+2. **A conventional entry point** — `main.py`, `__main__.py`, `app.py`, `run.py`,
+   `cli.py`, `gui.py`, `start.py` — at the root or one or two levels down, so
+   `src/myapp/__main__.py` is found. `.venv`, `build`, `dist`, `tests` and friends
+   are skipped.
+3. **Any other `.py` at the root**, so a flat pile of scripts still offers a list.
 
-**If the folder contains a `.spec` file it wins over `main.py`.** A project that
-ships its own spec has already declared its hidden imports, data files and
-windowed mode there, and no set of flags here could second-guess it. The spec
-runs from its own folder, so the relative paths inside it (`Analysis(["main.py"])`,
-`pathex=["."]`) work exactly as they do when you run PyInstaller by hand.
+The exe is named after the folder when the entry point is `main.py`
+(`myproject/main.py` → `myproject.exe`), otherwise after the file. In the local
+app you can always override the choice; the workflow takes the first match.
 
-`build.args` is how a script in the drop folder gets non-default flags without
-going through the manual workflow — one flag per line, `#` starts a comment:
+## Dependencies
+
+In this order, no configuration required:
+
+1. **A `requirements.txt` beside the entry point** — used as-is. The reliable
+   option; reach for it the moment a build guesses wrong.
+2. **Otherwise the nearest one above it**, walking up to the project root — so
+   one tool never picks up its neighbour's.
+3. **Nothing found** — `pipreqs` reads the imports and generates one, printed in
+   the log. Packages install one at a time, because pipreqs infers package names
+   from import names and gets some wrong (`import win32com` really means
+   `pywin32`, `import cv2` means `opencv-python`, a local module looks like a
+   package). One bad guess doesn't stop the rest, and the log names what it
+   skipped.
+
+PyInstaller itself is always installed, pinned, whichever branch runs.
+
+## Per-project flags: build.args
+
+Drop a `build.args` next to the entry point for anything the defaults get wrong.
+One flag per line, `#` starts a comment:
 
 ```
 --windowed
 --hidden-import win32timezone
---add-data "template.xlsx;."
+--add-data "templates;templates"
 ```
-
-## How dependencies are handled
-
-You don't have to do anything, but here's the order so nothing is a surprise:
-
-1. **A `requirements.txt` next to your script** — used as-is. This is the
-   reliable option; reach for it whenever the build gets it wrong.
-2. **Otherwise, the nearest one above it** — walking up to the repo root. So
-   `scripts/bigger_tool/main.py` picks up `scripts/bigger_tool/requirements.txt`,
-   never a neighbouring tool's.
-3. **Nothing found** — `pipreqs` reads your imports and generates one. It's
-   printed in the build log. Packages install one at a time, so a line pipreqs
-   guessed wrong (`import cv2` really means `opencv-python`, a local module
-   mistaken for a package) doesn't stop the others — the log names what it
-   skipped.
-4. **`requirements: none`** in the manual workflow — install nothing, for a
-   stdlib-only script.
-
-PyInstaller itself is always installed, pinned, whichever branch runs.
-
-## The same thing as a local app
-
-`scripts/PyToExe_Builder/` builds into `PyToExe_Builder.exe` — a window where you
-pick a project folder and press **Build .exe**. It applies the same rules as the
-workflow (a `.spec` beats `main.py`, requirements found by walking up, pipreqs
-as a fallback, `build.args` honoured) and writes to the project's own `dist\`.
-
-**It needs Python installed on that machine.** PyInstaller compiles a program by
-importing it and tracing what it pulls in, which takes a real interpreter with a
-complete standard library — a frozen exe's stripped runtime cannot do it. So the
-app finds Python, keeps its own virtualenv in `%LOCALAPPDATA%\PyToExe`, and runs
-PyInstaller as a subprocess. If no Python is found it says so and stops.
-
-Use the workflow when you want a build with nothing installed; use this when you
-want a build with no network.
-
-## Building on your own machine
-
-Same script the workflows call, so the result matches:
-
-```bash
-powershell -ExecutionPolicy Bypass -File build-exe.ps1 -Script scripts\hello.py
-```
-
-Dependencies go into a throwaway `.venv-build\`, not your normal Python. Needs
-Python installed locally; the workflows don't.
-
-Useful parameters — `-Name`, `-Mode onedir`, `-Console windowed`, `-Icon app.ico`,
-`-Requirements <path|none>`, `-ExtraArgs`, `-SmokeArgs`.
 
 ## Three things that bite with PyInstaller
 
-Worth reading before your first real build — these cause almost every "it built
-but won't run".
+Nearly every "it built but won't run" is one of these:
 
-- **Data files aren't detected.** Images, templates, `.json` config next to your
-  script: add `--add-data "assets;assets"` (on Windows the separator between
-  source and destination is `;`, not `:`).
+- **Data files aren't detected.** Templates, images, `.json` config: add
+  `--add-data "assets;assets"` (on Windows the separator is `;`, not `:`).
 - **Dynamic imports are invisible.** Anything imported by name at runtime —
-  plugin loaders, `importlib`, some database drivers — is left out, so the exe
-  builds cleanly and dies on startup. Fix with `--hidden-import package.module`,
-  and pass `-SmokeArgs "--version"` so the build catches it instead of you.
-- **Paths change when frozen.** `__file__` points inside a temp extraction
-  folder at runtime, so writing next to it silently loses data. Use
-  `sys.executable`'s folder for files the user should keep, and check
-  `getattr(sys, "frozen", False)` when the two paths need to differ.
+  plugin loaders, `importlib`, database drivers, all of pywin32 — is left out, so
+  the exe builds cleanly and dies on startup. Fix with `--hidden-import`.
+- **Paths change when frozen.** `__file__` points into a temp extraction folder,
+  so writing next to it silently loses data. Use `sys.executable`'s folder for
+  anything the user keeps, and check `getattr(sys, "frozen", False)` when the two
+  differ.
 
-Also expect a SmartScreen warning on any unsigned exe, and 30-60 MB for anything
-that imports pandas or similar. `-Mode onedir` starts faster than `onefile` and
-trips antivirus less often, at the cost of shipping a folder instead of one file.
+Also expect a SmartScreen warning on any unsigned exe, 30-60 MB for anything
+pulling in Qt or pandas, and the occasional antivirus false positive — a onefile
+exe unpacks itself to `%TEMP%` and runs from there, which is what packed malware
+does too. Folder mode avoids that pattern and starts faster; the cost is shipping
+a folder instead of a single file.
+
+## Building the builder
+
+The workflow compiles it like any other project — push, then download the
+**PyToExe_Builder** artifact. Or locally, if you already have Python:
+
+```bash
+powershell -ExecutionPolicy Bypass -File build-exe.ps1 -Script scripts\PyToExe_Builder\main.py
+```
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `scripts/` | Your scripts. The drop folder. |
-| `build-exe.ps1` | All the build logic. Both workflows call this, so CI and local builds can't drift apart. |
-| `.github/workflows/build-scripts.yml` | Auto-builds everything in `scripts/` on push. |
-| `.github/workflows/build-exe.yml` | Manual build of any path, with the full option set. |
+| `scripts/` | The drop folder — projects the workflow builds. |
+| `scripts/PyToExe_Builder/` | The local app. Compiles any repo on your machine. |
+| `build-exe.ps1` | Every build rule, in one place. Both workflows call it, so CI and local builds can't drift. |
+| `.github/workflows/build-scripts.yml` | Builds everything in `scripts/` on push. |
+| `.github/workflows/build-exe.yml` | Manual build of any path, full options. |

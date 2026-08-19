@@ -76,23 +76,54 @@ def find_python() -> Path | None:
     return None
 
 
-def detect_entry(project: Path) -> tuple[Path | None, str]:
-    """Same precedence as the workflow: a project's own .spec describes its
-    build better than any flags this tool could pass."""
-    specs = sorted(project.glob("*.spec"))
-    if specs:
-        return specs[0], f"spec: {specs[0].name}"
+ENTRY_NAMES = ("main.py", "__main__.py", "app.py", "run.py", "cli.py", "gui.py", "start.py")
+SKIP_DIRS = {".git", ".venv", "venv", "env", "__pycache__", "build", "dist",
+             "node_modules", ".idea", ".vscode", "tests", "test", "docs"}
 
-    main = project / "main.py"
-    if main.exists():
-        return main, "main.py"
 
-    roots = [p for p in sorted(project.glob("*.py")) if p.name != "__init__.py"]
-    if len(roots) == 1:
-        return roots[0], roots[0].name
-    if len(roots) > 1:
-        return None, f"{len(roots)} .py files and no main.py — rename one to main.py"
-    return None, "no .py or .spec found here"
+def find_candidates(project: Path) -> list[Path]:
+    """Everything in this repo that could plausibly be the thing to build,
+    best guess first.
+
+    Real repositories rarely hand you a single obvious file: the entry point
+    might be src/app/__main__.py, or one of six scripts at the root. So this
+    ranks what it finds and the window lets you override it — guessing wrong
+    is fine, guessing and refusing to be corrected is not.
+    """
+    found: list[Path] = []
+
+    def add(path: Path) -> None:
+        if path.is_file() and path not in found:
+            found.append(path)
+
+    # A project's own spec beats anything this tool could reconstruct.
+    for spec in sorted(project.glob("*.spec")):
+        add(spec)
+    for spec in sorted(project.glob("*/*.spec")):
+        if spec.parent.name not in SKIP_DIRS:
+            add(spec)
+
+    # Conventional entry-point names, root first, then one and two levels in
+    # (src/main.py, src/mypackage/__main__.py — the usual shapes).
+    for name in ENTRY_NAMES:
+        add(project / name)
+    for depth in ("*", "*/*"):
+        for name in ENTRY_NAMES:
+            for path in sorted(project.glob(f"{depth}/{name}")):
+                if not any(part in SKIP_DIRS for part in path.relative_to(project).parts):
+                    add(path)
+
+    # Anything else at the root, so a flat repo of scripts still offers a list.
+    for path in sorted(project.glob("*.py")):
+        if path.name not in ("__init__.py", "setup.py", "conftest.py"):
+            add(path)
+
+    return found
+
+
+def describe(project: Path, entry: Path) -> str:
+    relative = entry.relative_to(project) if entry.is_relative_to(project) else entry
+    return f"{relative}  (spec)" if entry.suffix == ".spec" else str(relative)
 
 
 def find_requirements(entry: Path, project: Path) -> Path | None:
@@ -257,6 +288,7 @@ class App(tk.Tk):
         self.minsize(700, 480)
 
         self.messages: queue.Queue[str] = queue.Queue()
+        self.candidates: dict[str, Path] = {}
         self.entry_path: Path | None = None
         self.result: Path | None = None
 
@@ -264,15 +296,23 @@ class App(tk.Tk):
         top = ttk.Frame(self)
         top.pack(fill="x", **pad)
 
-        ttk.Label(top, text="Project folder").grid(row=0, column=0, sticky="w")
+        ttk.Label(top, text="Repo / project folder").grid(row=0, column=0, sticky="w")
         self.folder = tk.StringVar()
         ttk.Entry(top, textvariable=self.folder).grid(row=0, column=1, sticky="ew", padx=6)
         ttk.Button(top, text="Browse...", command=self.pick_folder).grid(row=0, column=2)
         top.columnconfigure(1, weight=1)
 
+        ttk.Label(top, text="Entry point").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.entry_choice = tk.StringVar()
+        self.entry_box = ttk.Combobox(top, textvariable=self.entry_choice, state="readonly")
+        self.entry_box.grid(row=1, column=1, sticky="ew", padx=6, pady=(6, 0))
+        self.entry_box.bind("<<ComboboxSelected>>", self.on_entry_selected)
+        ttk.Button(top, text="Pick file...",
+                   command=self.pick_entry).grid(row=1, column=2, pady=(6, 0))
+
         self.detected = ttk.Label(top, text="Pick the folder holding your project.",
                                   foreground="#888")
-        self.detected.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self.detected.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         options = ttk.LabelFrame(self, text="Options")
         options.pack(fill="x", **pad)
@@ -345,10 +385,32 @@ class App(tk.Tk):
     # --- actions ----------------------------------------------------------
 
     def pick_folder(self) -> None:
-        chosen = filedialog.askdirectory(title="Select the project folder")
+        chosen = filedialog.askdirectory(title="Select the repo or project folder")
         if chosen:
             self.folder.set(chosen)
             self.refresh_detection()
+
+    def pick_entry(self) -> None:
+        """The escape hatch for a layout the scan didn't anticipate."""
+        project = Path(self.folder.get())
+        chosen = filedialog.askopenfilename(
+            title="Select the entry point",
+            initialdir=str(project) if project.is_dir() else None,
+            filetypes=[("Python or spec", "*.py *.spec"), ("All files", "*.*")],
+        )
+        if not chosen:
+            return
+        entry = Path(chosen)
+        if not project.is_dir():
+            # Choosing a file before a folder is a reasonable order to work in;
+            # treat its folder as the project rather than complaining.
+            project = entry.parent
+            self.folder.set(str(project))
+        label = describe(project, entry)
+        self.candidates[label] = entry
+        self.entry_box["values"] = list(self.candidates)
+        self.entry_choice.set(label)
+        self.on_entry_selected()
 
     def pick_icon(self) -> None:
         chosen = filedialog.askopenfilename(title="Select an icon",
@@ -361,17 +423,42 @@ class App(tk.Tk):
         if not project.is_dir():
             self.detected.config(text="That folder doesn't exist.", foreground="#c33")
             self.entry_path = None
+            self.candidates = {}
+            self.entry_box["values"] = []
+            self.entry_choice.set("")
             return
-        entry, description = detect_entry(project)
-        self.entry_path = entry
-        if entry:
-            self.detected.config(text=f"Will build: {description}", foreground="#2a7")
+
+        found = find_candidates(project)
+        self.candidates = {describe(project, path): path for path in found}
+        self.entry_box["values"] = list(self.candidates)
+
+        if found:
+            self.entry_choice.set(describe(project, found[0]))
+            self.on_entry_selected()
         else:
-            self.detected.config(text=description, foreground="#c33")
+            self.entry_path = None
+            self.entry_choice.set("")
+            self.detected.config(
+                text="No .py or .spec found here — use 'Pick file...' to choose one.",
+                foreground="#c33")
+
+    def on_entry_selected(self, _event=None) -> None:
+        self.entry_path = self.candidates.get(self.entry_choice.get())
+        if self.entry_path is None:
+            return
+        if self.entry_path.suffix == ".spec":
+            note = "the project's own spec decides mode, console and data files"
+        else:
+            note = f"exe will be named after {self.entry_path.parent.name}" \
+                if self.entry_path.stem == "main" else "built with the options below"
+        self.detected.config(text=f"Will build: {self.entry_path.name} — {note}",
+                             foreground="#2a7")
 
     def start_build(self) -> None:
-        self.refresh_detection()
+        # Deliberately not re-running detection here: that would discard an
+        # entry point picked by hand and silently build something else.
         if self.entry_path is None:
+            self.detected.config(text="Choose an entry point first.", foreground="#c33")
             return
         self.build_button.config(state="disabled")
         self.open_button.config(state="disabled")

@@ -17,7 +17,6 @@ import os
 import threading
 
 from .config import LOCAL_DRIVES, SHARE_ROOT
-from .text import normalize_spaces
 
 _QUOTES = "\"'\u201c\u201d"
 
@@ -39,7 +38,18 @@ def split_paths(raw: str) -> list[str]:
 
 
 def unquote(path: str) -> str:
-    return normalize_spaces(path).strip().strip(_QUOTES).strip()
+    """Surrounding quotes and whitespace removed, and nothing else.
+
+    Interior spacing is left exactly as typed. This used to run the path
+    through normalize_spaces, which collapses runs of spaces - correct for
+    the Area column, wrong for a path. A folder is allowed to be called
+    "B10  GF SERVICES ROOM" with two spaces, and collapsing them reported
+    "not found" for a folder that was plainly there.
+
+    str.strip() already removes a non-breaking space at either end, so
+    pasted paths still come out clean.
+    """
+    return path.strip().strip(_QUOTES).strip()
 
 
 def trim_slashes(path: str) -> str:

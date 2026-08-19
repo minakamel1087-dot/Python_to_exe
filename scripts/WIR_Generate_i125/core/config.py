@@ -8,6 +8,8 @@ that changes.
 
 from __future__ import annotations
 
+import os
+
 # --- The workbook ----------------------------------------------------------
 
 WORKBOOK_NAME = "i125-WIR Cover Generate.xlsm"
@@ -159,6 +161,30 @@ AMBIGUOUS_AREAS = {
 # A leftover fragment this short says nothing useful - it is what is left
 # after a split, not a name someone typed. Reporting it only adds noise.
 MIN_REPORTABLE_AREA = 4
+
+# --- Expiry check ----------------------------------------------------------
+# A published text file holding the date this program stops working. Empty
+# switches the check off entirely. See core/licence.py for the format and
+# for what happens with no network.
+# Checked in this order: the local file first (network never touched when
+# it is there), then the published one. Both must carry a valid signature.
+# Per-user, and built from the environment rather than spelled out: a
+# literal path with a user name in it would only be right on one machine.
+LICENCE_LOCAL_FILE = os.path.join(
+    os.environ.get("LOCALAPPDATA") or os.environ.get("TEMP") or ".",
+    "WGT", "i125_WIR_Validation.txt",
+)
+LICENCE_URL = (
+    "https://raw.githubusercontent.com/minakamel1087-dot/"
+    "Document-management-system-date-validation/main/i125_WIR_Generate"
+)
+LICENCE_TIMEOUT = 4.0        # seconds; startup must not hang on a dead host
+
+# The public half of the signing key. Verifies signatures, cannot create
+# them, and is safe to publish. Empty switches the whole check off.
+# Produced by: python tools\sign_licence.py --new-key
+LICENCE_PUBLIC_KEY = "8NkMdB06R1DZ5iUPodMEyqysuL7Jblv66Qjv+Y6G9w8="
+
 
 # Where site attachments actually live.
 SHARE_ROOT = "Z:\\Common\\"

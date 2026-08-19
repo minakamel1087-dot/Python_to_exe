@@ -141,12 +141,50 @@ def _pause_if_asked() -> None:
             pass
 
 
+def _expired() -> bool:
+    """The licence check, reported the way each caller can see it.
+
+    --selftest deliberately runs before this: a machine that cannot start
+    the program still needs to be able to prove why.
+    """
+    from core import licence
+
+    verdict = licence.check()
+    if verdict.ok:
+        return False
+
+    # A licence signed with a blank message stops the program without a
+    # word - nothing printed, no dialog. Deliberate, and chosen at the
+    # moment the licence was signed.
+    if verdict.silent:
+        return True
+
+    message = "\n\n".join(part for part in (verdict.headline, verdict.detail) if part)
+    print(message, file=sys.stderr)
+
+    if len(sys.argv) == 1:                       # the windowed run
+        try:
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(
+                None, message, "WIR Generate Tools", 0x30      # warning icon
+            )
+        except Exception:                        # noqa: BLE001
+            pass
+    return True
+
+
 def main() -> int:
     if "--selftest" in sys.argv:
         from core import selftest
         code = selftest.run()
         _pause_if_asked()
         return code
+
+    if _expired():
+        _pause_if_asked()
+        return 2
+
     if "--probe" in sys.argv:
         return _probe()
     if "--check" in sys.argv:

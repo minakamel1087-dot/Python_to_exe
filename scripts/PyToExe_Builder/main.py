@@ -43,8 +43,29 @@ NO_WINDOW = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW
 # ---------------------------------------------------------------------------
 
 
+def can_build(python: Path) -> bool:
+    """Whether this interpreter can host a build.
+
+    Embeddable Python distributions — the portable kind an app ships to run on
+    a machine with nothing installed — have venv and ensurepip stripped out.
+    They run programs perfectly well and cannot build them at all, so they have
+    to be filtered out here rather than failing later with something obscure.
+    """
+    try:
+        probe = subprocess.run(
+            [str(python), "-c", "import venv, ensurepip"],
+            capture_output=True, timeout=30, creationflags=NO_WINDOW,
+        )
+        return probe.returncode == 0
+    except Exception:
+        return False
+
+
 def find_python() -> Path | None:
-    """A system Python, not this exe's frozen runtime."""
+    """A system Python that can actually build — not this exe's own frozen
+    runtime, and not a portable interpreter that only knows how to run."""
+    candidates: list[Path] = []
+
     launcher = shutil.which("py")
     if launcher:
         try:
@@ -53,26 +74,30 @@ def find_python() -> Path | None:
                 capture_output=True, text=True, timeout=20, creationflags=NO_WINDOW,
             )
             if out.returncode == 0 and out.stdout.strip():
-                return Path(out.stdout.strip())
+                candidates.append(Path(out.stdout.strip()))
         except Exception:
             pass
 
     for name in ("python", "python3"):
         found = shutil.which(name)
-        # The Microsoft Store stub on PATH is not a working interpreter; it
-        # only opens the Store page.
+        # The Microsoft Store stub on PATH is not an interpreter; it only opens
+        # the Store page.
         if found and "WindowsApps" not in found:
-            return Path(found)
+            candidates.append(Path(found))
 
     for pattern in ("Python3*", "Python 3*"):
         for root in (Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python",
                      Path("C:/"), Path("C:/Program Files")):
             if not root.exists():
                 continue
-            for candidate in sorted(root.glob(pattern), reverse=True):
-                exe = candidate / "python.exe"
+            for directory in sorted(root.glob(pattern), reverse=True):
+                exe = directory / "python.exe"
                 if exe.exists():
-                    return exe
+                    candidates.append(exe)
+
+    for candidate in candidates:
+        if can_build(candidate):
+            return candidate
     return None
 
 
@@ -229,11 +254,14 @@ class Builder:
         python = find_python()
         if python is None:
             raise RuntimeError(
-                "No Python found on this machine.\n\n"
-                "PyInstaller needs a real interpreter to trace a program's imports, so "
-                "this tool cannot build without one.\n\n"
-                "Install it from python.org and tick 'Add python.exe to PATH', then "
-                "reopen this window."
+                "No Python capable of building was found on this machine.\n\n"
+                "PyInstaller needs a full interpreter to trace a program's imports. A "
+                "portable or embeddable Python does not qualify — venv and ensurepip "
+                "are stripped out of those, so they can run programs but not build "
+                "them.\n\n"
+                "Install Python from python.org, tick 'Add python.exe to PATH', and "
+                "reopen this window. Or push the project and let the GitHub workflow "
+                "build it, which needs nothing installed here."
             )
         self.log(f"Python: {python}")
 

@@ -70,6 +70,22 @@ You don't have to do anything, but here's the order so nothing is a surprise:
 
 PyInstaller itself is always installed, pinned, whichever branch runs.
 
+## The same thing as a local app
+
+`scripts/PyToExe_Builder/` builds into `PyToExe_Builder.exe` — a window where you
+pick a project folder and press **Build .exe**. It applies the same rules as the
+workflow (a `.spec` beats `main.py`, requirements found by walking up, pipreqs
+as a fallback, `build.args` honoured) and writes to the project's own `dist\`.
+
+**It needs Python installed on that machine.** PyInstaller compiles a program by
+importing it and tracing what it pulls in, which takes a real interpreter with a
+complete standard library — a frozen exe's stripped runtime cannot do it. So the
+app finds Python, keeps its own virtualenv in `%LOCALAPPDATA%\PyToExe`, and runs
+PyInstaller as a subprocess. If no Python is found it says so and stops.
+
+Use the workflow when you want a build with nothing installed; use this when you
+want a build with no network.
+
 ## Building on your own machine
 
 Same script the workflows call, so the result matches:

@@ -1,0 +1,3 @@
+# Deliberately empty: this tool is standard library only (tkinter, subprocess,
+# pathlib). The file still earns its place — its presence stops pipreqs from
+# guessing, which keeps the build deterministic.

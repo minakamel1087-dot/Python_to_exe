@@ -1,0 +1,2 @@
+# It's a tkinter window — without this a console sits behind it.
+--windowed

@@ -1,0 +1,22 @@
+Self-check: building a synthetic workbook...
+  reference data: D:\i125\Document Management\Clearance WIR Log Validation\Clearance WIR Log Validation\reference
+  Reading Selftest.xlsm (0.0 MB)
+  Rules: 5 units, 4 areas, 3 floors
+  WIR Validated (doc 01)...
+    WIR: 2 rows -> OK 2 | FIXED 0 | ERROR 0 | SKIPPED 0
+      OK 2
+    -> ELE_WIR_Validated.xlsx
+  Clearance Validated (doc 02)...
+    CLEARANCE: 2 rows -> OK 1 | FIXED 1 | ERROR 0 | SKIPPED 0
+      FIXED 1, OK 1
+    -> MEP_Clearance_Validated.xlsx
+  Clearance Progress (doc 03)...
+    PROGRESS: 175 rows | 1 activity columns | 2 clearances placed
+    -> Clearance_Progress.xlsx
+  Clearance vs WIR Match (doc 04)...
+    MATCH: checked 2 clearances in 2 rows | FULL 1 | FLOOR-WIR 0 | PARTIAL 0 | NONE 1 | No Service 0
+    -> Clearance_WIR_Match.xlsx
+
+  Excel automation OK (read back 2026-08-18 12:30:00+00:00)
+  Import OK (1 row, dates and times survived)
+Self-check passed - 4 workbooks generated.

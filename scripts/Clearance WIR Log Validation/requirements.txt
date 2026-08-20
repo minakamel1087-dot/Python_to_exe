@@ -1,0 +1,5 @@
+openpyxl==3.1.5
+# Excel automation, used only by the log importers. The master workbook carries
+# macros, tables and external links, and a full openpyxl round-trip of a file
+# like that can silently drop them — Excel writes only the cells we ask for.
+pywin32>=306; sys_platform == "win32"

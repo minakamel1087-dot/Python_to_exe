@@ -1,0 +1,3 @@
+--windowed
+--hidden-import win32com.client
+--hidden-import win32timezone

@@ -58,7 +58,10 @@ Both routes pick the entry point the same way, best first:
    `cli.py`, `gui.py`, `start.py` — at the root or one or two levels down, so
    `src/myapp/__main__.py` is found. `.venv`, `build`, `dist`, `tests` and friends
    are skipped.
-3. **Any other `.py` at the root**, so a flat pile of scripts still offers a list.
+3. **Any other `.py` at the project root**, so the entry point does not need to
+   be renamed to `main.py`. When several non-standard files exist, the first
+   filename alphabetically is selected; use a conventional name or `.spec` to
+   make the choice explicit.
 
 The exe is named after the folder when the entry point is `main.py`
 (`myproject/main.py` → `myproject.exe`), otherwise after the file. In the local
